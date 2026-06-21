@@ -1,0 +1,48 @@
+# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
+
+# dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Native — ios excluded but android/ is committed so CI can build APK
+ios/
+# android/ is intentionally NOT ignored — needed for GitHub Actions APK build
+
+# Android build outputs only (not source files)
+android/.gradle/
+android/app/build/
+android/build/
+android/local.properties
+
+# Keep debug.keystore (needed for CI signing)
+# *.jks excluded except debug.keystore
+*.p8
+*.p12
+*.mobileprovision
+*.orig.*
+
+# Metro
+.metro-health-check*
+
+# debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# macOS
+.DS_Store
+*.pem
+
+# local env files
+.env*.local
+
+# typescript
+*.tsbuildinfo
+.vercel
+
+.env

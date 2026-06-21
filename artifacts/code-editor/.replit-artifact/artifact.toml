@@ -1,0 +1,26 @@
+kind = "mobile"
+previewPath = "/"
+title = "VS Code Mobile IDE"
+version = "1.0.0"
+id = "artifacts/code-editor"
+router = "expo-domain"
+
+[[integratedSkills]]
+name = "expo"
+version = "1.0.0"
+
+[[services]]
+name = "expo"
+paths = [ "/" ]
+localPort = 24368
+
+[services.development]
+run = "pnpm --filter @workspace/code-editor run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/code-editor", "run", "build" ]
+run = [ "pnpm", "--filter", "@workspace/code-editor", "run", "serve" ]
+
+[services.env]
+PORT = "24368"
+BASE_PATH = "/"

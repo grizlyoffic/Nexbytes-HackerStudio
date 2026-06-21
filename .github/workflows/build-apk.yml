@@ -1,0 +1,180 @@
+name: Build Android APK (Manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Build type'
+        required: true
+        default: 'release'
+        type: choice
+        options:
+          - release
+          - debug
+      architecture:
+        description: 'Architecture'
+        required: true
+        default: 'arm64-v8a'
+        type: choice
+        options:
+          - arm64-v8a
+          - armeabi-v7a
+          - x86_64
+          - all
+
+jobs:
+  build-apk:
+    name: Build APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      # ── 1. Checkout ──────────────────────────────────────────────────
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── 2. pnpm ──────────────────────────────────────────────────────
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      # ── 3. Node.js 20 ────────────────────────────────────────────────
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      # ── 4. Java 17 ───────────────────────────────────────────────────
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      # ── 5. Android SDK ────────────────────────────────────────────────
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      # ── 6. Install pnpm dependencies ──────────────────────────────────
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      # ── 6.5 Install missing packages ──────────────────────────────────
+      - name: Install missing packages
+        run: pnpm add -D -w babel-preset-expo react-compiler-runtime babel-plugin-react-compiler
+
+      # ── 7. Expo Prebuild (regenerate android/ from app.json) ──────────
+      - name: Expo Prebuild
+        working-directory: artifacts/code-editor
+        run: pnpm exec expo prebuild --platform android --no-install --clean
+
+      # ── 8. Write local.properties (SDK path for Gradle) ───────────────
+      - name: Write local.properties
+        run: |
+          echo "sdk.dir=$ANDROID_HOME" > artifacts/code-editor/android/local.properties
+
+      # ── 9. Make gradlew executable ────────────────────────────────────
+      - name: Make Gradlew executable
+        run: chmod +x artifacts/code-editor/android/gradlew
+
+      # ── 10. Cache Gradle ──────────────────────────────────────────────
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('artifacts/code-editor/android/**/*.gradle*', 'artifacts/code-editor/android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: gradle-
+
+      # ── 11. Build APK ─────────────────────────────────────────────────
+      - name: Build APK
+        working-directory: artifacts/code-editor/android
+        run: |
+          if [ "${{ github.event.inputs.build_type }}" = "debug" ]; then
+            ./gradlew assembleDebug \
+              --no-daemon \
+              --stacktrace \
+              -Dorg.gradle.jvmargs="-Xmx3g -XX:MaxMetaspaceSize=512m"
+          else
+            if [ "${{ github.event.inputs.architecture }}" = "all" ]; then
+              ./gradlew assembleRelease \
+                --no-daemon \
+                --stacktrace \
+                -Dorg.gradle.jvmargs="-Xmx3g -XX:MaxMetaspaceSize=512m"
+            else
+              ./gradlew assembleRelease \
+                --no-daemon \
+                --stacktrace \
+                -Dorg.gradle.jvmargs="-Xmx3g -XX:MaxMetaspaceSize=512m" \
+                -PreactNativeArchitectures=${{ github.event.inputs.architecture }}
+            fi
+          fi
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+          NODE_OPTIONS: "--max-old-space-size=4096"
+
+      # ── 12. Sign APK ──────────────────────────────────────────────────
+      - name: Sign APK
+        run: |
+          BUILD_TOOLS_VER=$(ls $ANDROID_HOME/build-tools/ | sort -V | tail -1)
+          APKSIGNER="$ANDROID_HOME/build-tools/$BUILD_TOOLS_VER/apksigner"
+          
+          if [ "${{ github.event.inputs.build_type }}" = "debug" ]; then
+            UNSIGNED="artifacts/code-editor/android/app/build/outputs/apk/debug/app-debug.apk"
+            SIGNED="artifacts/code-editor/android/app/build/outputs/apk/debug/VSCodeMobile-debug.apk"
+          else
+            UNSIGNED="artifacts/code-editor/android/app/build/outputs/apk/release/app-release-unsigned.apk"
+            SIGNED="artifacts/code-editor/android/app/build/outputs/apk/release/VSCodeMobile.apk"
+          fi
+
+          if [ -f "$UNSIGNED" ]; then
+            $APKSIGNER sign \
+              --ks artifacts/code-editor/android/app/debug.keystore \
+              --ks-key-alias androiddebugkey \
+              --ks-pass pass:android \
+              --key-pass pass:android \
+              --out "$SIGNED" \
+              "$UNSIGNED"
+            echo "Signed APK: $SIGNED"
+          else
+            # If already signed by Gradle
+            if [ "${{ github.event.inputs.build_type }}" = "debug" ]; then
+              mv artifacts/code-editor/android/app/build/outputs/apk/debug/app-debug.apk \
+                 artifacts/code-editor/android/app/build/outputs/apk/debug/VSCodeMobile-debug.apk || true
+            else
+              mv artifacts/code-editor/android/app/build/outputs/apk/release/app-release.apk \
+                 artifacts/code-editor/android/app/build/outputs/apk/release/VSCodeMobile.apk || true
+            fi
+          fi
+
+      # ── 13. Upload APK artifact ───────────────────────────────────────
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: VSCodeMobile-${{ github.event.inputs.build_type }}-${{ github.event.inputs.architecture }}
+          path: |
+            artifacts/code-editor/android/app/build/outputs/apk/*/VSCodeMobile*.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      # ── 14. Summary ───────────────────────────────────────────────────
+      - name: Build Summary
+        if: success()
+        run: |
+          echo "## ✅ APK Build Successful!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Build Details:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Type:** ${{ github.event.inputs.build_type }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Architecture:** ${{ github.event.inputs.architecture }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Download:" >> $GITHUB_STEP_SUMMARY
+          echo "**Actions → This workflow run → Artifacts → VSCodeMobile-${{ github.event.inputs.build_type }}-${{ github.event.inputs.architecture }}**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          APK_PATH=$(find artifacts/code-editor/android/app/build/outputs/apk -name "VSCodeMobile*.apk" 2>/dev/null | head -1)
+          if [ -n "$APK_PATH" ]; then
+            APK_SIZE=$(du -sh "$APK_PATH" | cut -f1)
+            echo "APK Size: $APK_SIZE" >> $GITHUB_STEP_SUMMARY
+          fi

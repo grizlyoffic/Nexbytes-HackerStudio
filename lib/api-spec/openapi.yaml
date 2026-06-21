@@ -1,0 +1,102 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: API specification
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: terminal
+    description: Code execution operations
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      description: Returns server health status
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+  /execute:
+    post:
+      operationId: executeCode
+      tags: [terminal]
+      summary: Execute code or shell command
+      description: Runs a code snippet or shell command and returns stdout/stderr
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExecuteRequest"
+      responses:
+        "200":
+          description: Execution result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExecuteResult"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+    ExecuteRequest:
+      type: object
+      properties:
+        code:
+          type: string
+          description: Code or command to execute
+        language:
+          type: string
+          description: Language (python, node, bash, java)
+          enum: [python, node, bash, java]
+        cwd:
+          type: string
+          description: Working directory (optional)
+      required:
+        - code
+        - language
+    ExecuteResult:
+      type: object
+      properties:
+        stdout:
+          type: string
+        stderr:
+          type: string
+        exitCode:
+          type: integer
+        executionTime:
+          type: number
+          description: Execution time in milliseconds
+      required:
+        - stdout
+        - stderr
+        - exitCode
+        - executionTime
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
